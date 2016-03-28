@@ -1,0 +1,21 @@
+{
+  "name": "node-database",
+  "description": "通用数据库操作模块，提供常用的数据库操作接口，支持Microsoft Access，Microsoft SQL Server，MySQL数据库。",
+  "version": "0.0.7",
+  "author": {
+    "name": "Spikef",
+    "email": "Spikef@Foxmail.com",
+    "url": "http://xybk.net/"
+  },
+  "license": "MIT",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Spikef/node-database"
+  },
+  "dependencies": {
+    "deasync": "^0.1.4",
+    "mysql": "^2.10.2",
+    "sql.js": "^0.3.1"
+  }
+}
