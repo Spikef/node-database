@@ -1,33 +1,18 @@
 # 通用数据库操作模块 #
 
-提供常用的数据库操作接口，支持Microsoft Access，Microsoft SQL Server，MySQL和SQLite数据库。
+提供常用的数据库操作接口，支持MySQL和SQLite数据库。
 
-> **NOTE**
-> 对于联表查询时，如果多个表中具有相同的字段，那么应该指定别名而不是使用*来查询，否则在某些数据库中会报错!!
+> NOTE: 目前仍然处理测试阶段, 请不要用于生产环境!
 
 ## Environment ##
 
-### Access ###
-
-默认使用`Microsoft.JET.OLEDB.4.0`连接，支持Office 97-2003(.mdb)。如果是Office 2007及以上的版本(.accdb)，请手动指定驱动程序，例如：<code>Microsoft.ACE.OLEDB.12.0</code>。
-
-### SQL Server ###
-
-记得开启TCP/IP，提高访问速度。
-
 ### MySQL ###
 
-默认使用32位`5.1`版本驱动。如果是其它版本驱动程序，请手动指定驱动程序版本，例如：`5.3 unicode`。
-
-> MYSQL ODBC 5.1 Driver下载：
-> http://dev.mysql.com/get/Downloads/Connector-ODBC/5.1/mysql-connector-odbc-5.1.13-win32.msi
+基于`mysql`库和`deasync`库。
 
 ### SQLite ###
 
-默认使用32位`SQLite 3`驱动。
-
-> SQLite ODBC 3 Driver下载：
-> http://www.ch-werner.de/sqliteodbc/sqliteodbc.exe
+基于`sql.js`库。
 
 ## Methods ##
 
