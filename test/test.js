@@ -78,14 +78,24 @@ var db = require('node-database');
 // ============================== //
 
 // 联表查询
-//options.sqlite.dbPath = './excms.db';
-//db.connect(options.sqlite);
+options.sqlite.dbPath = './excms.db';
+db.connect(options.sqlite);
 
 // 单表查询
+params = {
+    action: "select",
+    tables: "cms_news",
+    fields: ["id", "posttime", "posttime"],
+    where: "title like '菱湖%'",
+    orders: "id desc",
+    top: 4
+};
+
+// 单表查询，带*
 //params = {
 //    action: "select",
 //    tables: "cms_news",
-//    fields: ["id", "title", "posttime"],
+//    fields: "*",
 //    where: "title like '菱湖%'",
 //    orders: "id desc",
 //    top: 4
@@ -110,9 +120,17 @@ var db = require('node-database');
 //    top: 1
 //};
 
+//params = {
+//    action: "select",
+//    tables: ["cms_news as N", "cms_news_class as M"],
+//    fields: "N.id, N.title as N_title, M.*",
+//    where: "N.category=M.id and N.title like '菱湖%'",
+//    top: 1
+//};
+
 //var ret = db.select(params.tables, params.fields, params.where, params.orders, params.top).toJSON();
-//var ret = db.select(params).toJSON();
-//console.log(ret);
+var ret = db.select(params).toJSON();
+console.log(ret);
 
 // 分页查询，有无别名均处理; *未处理
 //var sql = "select N.id as Nid, N.title as Ntitle, N.category, C.id as Cid, C.title as Ctitle from cms_news as N, cms_news_class as C order by C.id, N.id";
@@ -124,43 +142,4 @@ var db = require('node-database');
 //var ret = db.page(sql, 111, 2);
 //console.log(ret);
 
-//db.close();
-
-//var Future = require('fibers/future');
-
-var asyncFn = function(a, callback) {
-    setTimeout(function() {
-        if (typeof a !== 'number') {
-            callback('TypeError');
-            return;
-        }
-
-        var v1 = a + 100;
-        var v2 = a + 101;
-        callback(null, v1, v2);
-    }, 10);
-}
-
-var deasync = require('deasync');
-var syncFn = function(a) {
-    var done = false;
-    var data;
-
-    asyncFn(a, function(err, v1, v2){
-        data = {err: err, v1: v1, v2: v2};
-        done = true;
-    });
-
-    deasync.loopWhile(function(){return !done;});
-
-    if (data.err) {
-        throw data.err;
-    } else {
-        delete data.err;
-        return data;
-    }
-}
-
-console.log(syncFn('a'));
-console.log('done');
-
+db.close();

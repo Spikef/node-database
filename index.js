@@ -231,7 +231,7 @@ exports.runsql = exports.runSQL = function(sql) {
  * @param sql(access语法)
  * @param pageIndex: 页码索引，从1开始
  * @param pageSize: 每页记录条数，正整数
- * @returns {{minRow: number, maxRow: number, pageSize: number, pageIndex: number, pageTotal: number, result: boolean|{}}}
+ * @returns {{minRow: number, maxRow: number, pageSize: number, pageIndex: number, pageTotal: number, rowsTotal: number, result: boolean|{}}}
  * @thanks: @codestone(easyasp)
  */
 exports.page = function(sql, pageIndex, pageSize) {
@@ -246,6 +246,7 @@ exports.page = function(sql, pageIndex, pageSize) {
         pageSize: 0,
         pageIndex: 0,
         pageTotal: 0,
+        rowsTotal: 0,
         result: false
     };
     // 处理参数
@@ -386,7 +387,7 @@ exports.page = function(sql, pageIndex, pageSize) {
             });
 
             tmp.sqlTop = sql.replace(/select/i, "select top " + tmp.maxRow);
-            tmp.sqlSelect = "select * from (select top " + tmp.pageSize + " * from (" + tmp.sqlTop + ") " + tmp.orderBack + ") " + tmp.order;
+            tmp.sqlSelect = "select * from (select top " + tmp.pageSize + " * from (" + tmp.sqlTop + ") as __result_table__ " + tmp.orderBack + ") as __range_table__ " + tmp.order;
         } else if (/SQL Server 200(5|8)/i.test(version)) {
             // 如果是SQL Server 2005及2008版本数据库，利用ROW_NUMBER函数取分页记录
             // 查重名字段，解决多表字段重名问题
@@ -416,6 +417,7 @@ exports.page = function(sql, pageIndex, pageSize) {
             pageSize: tmp.pageSize,
             pageIndex: tmp.pageIndex,
             pageTotal: tmp.pageTotal,
+            rowsTotal: tmp.recordTotal,
             result: helper.exec(tmp.sqlSelect, 1).toJSON(sql)
         }
     }
@@ -605,27 +607,44 @@ exports.resolveSQL = function(sql) {
         }
     }
 
-    if (this.options.dbType === dbTypes.mysql) {
-        // 对于关键字，MySQL中使用`代替[]
-        sql = sql.replace(/\[|]/g, "`");
-    }
-
-    if (this.options.dbType === dbTypes.mssql) {
-        // 如果前后有空白字符，则删除
-        sql = sql.trim();
-        // 日期分隔符
-        sql.replace(/#([\d\-\.\s:]+)#/g, "'$1'")
+    switch (this.options.dbType) {
+        case dbTypes.sqlite:
+            // 对于rand函数, SQLite使用 random
+            sql = sql.replace(/( order by )rand\((.*)\)/i, '$1random()');
+            break;
+        case dbTypes.access:
+            // 对于rand函数, Access使用 rnd + time()
+            sql = sql.replace(/( order by )rand\((.*)\)/i, '$1rnd(time()-$2)');
+            break;
+        case dbTypes.mysql:
+            // 对于关键字，MySQL中使用`代替[]
+            sql = sql.replace(/\[|]/g, "`");
+            // 对于rand函数, MySQL使用 rand()
+            sql = sql.replace(/( order by )rand\((.*)\)/i, '$1rand()');
+            break;
+        case dbTypes.mssql:
+            // 如果前后有空白字符，则删除
+            sql = sql.trim();
+            // 日期分隔符
+            sql = sql.replace(/#([\d\-\.\s:]+)#/g, "'$1'")
+            // 对于rand函数, MsSQL使用 newid()
+            sql = sql.replace(/( order by )rand\((.*)\)/i, '$1newid()');
+            break;
     }
 
     // 替换变量
-    if (/\{%\d+}/.test(sql)) {
+    if (/\{\d+}/.test(sql)) {
+
         var args = Array.prototype.slice.call(arguments, 1);
-        sql = sql.replace(/\{%(\d+)}/g, function($0, $1) {
+        sql = sql.replace(/\{(\d+)}/g, function($0, $1) {
+            var value;
             if (args[$1]) {
-                return args[$1];
+                value = args[$1];
             } else {
-                return $0;
+                value = $0;
             }
+
+            return value;
         })
     }
 
@@ -644,6 +663,7 @@ exports.resolveSQL = function(sql) {
  */
 exports.produceSQL = function(action, tables, fields, where, orders, top) {
     var sql = "", s=", ";
+    var N = this.options.dbType === dbTypes.mssql ? "N" : "";
 
     // 以JSON传入参数
     if (Object.prototype.toString.call(tables) === '[object Object]') {
@@ -711,6 +731,8 @@ exports.produceSQL = function(action, tables, fields, where, orders, top) {
                     }
                 } else if (type === 'boolean') {
                     values.push(fields[i] ? 1 : 0);
+                } else if (type === 'string') {
+                    values.push(N + "'" + fields[i].replace(/'/g, "''") + "'");
                 } else {
                     values.push("'" + fields[i] + "'");
                 }
@@ -737,8 +759,10 @@ exports.produceSQL = function(action, tables, fields, where, orders, top) {
                     }
                 } else if (type === 'boolean') {
                     pairs.push(i + "=" + (fields[i] ? 1 : 0));
+                } else if (type === 'string') {
+                    pairs.push(i + "=" + N + "'" + fields[i].replace(/'/g, "''") + "'");
                 } else {
-                    pairs.push(i + "='" + fields[i] + "'");
+                    pairs.push(i + "='" + "'" + fields[i] + "'");
                 }
             }
 
@@ -942,7 +966,7 @@ exports.toJSON = function(index) {
         var tlist = {};     // 临时表名
         var flist = [];     // 临时字段
         tables.forEach(function(table, i) {
-            table = table.trim().replace('\[|\]|`', '');
+            table = table.trim().replace(/\[|]|`/g, '');
             if (table.contains(' ')) {
                 // 有别名的情况
                 table = table.split(/\s+/);
@@ -957,13 +981,13 @@ exports.toJSON = function(index) {
         });
         stars.forEach(function(star, i) {
             var table = star === '*' ? tables[i].name : alias[star.split('.').slice(-2)[0]];
-            var tmprs = that.conn.execute(that.resolveSQL("select top 1 * from " + table));
+            var tmpfs = that.getFields(table);
 
             stars[i] = [];
-            for ( var k = 0; k < tmprs.Fields.Count; k++ ) {
+            for ( var name in tmpfs ) {
                 var field = {
-                    name: tmprs.Fields(k).Name,
-                    alias: tlist[table] + '.' + tmprs.Fields(k).Name,
+                    name: name,
+                    alias: tlist[table] + '.' + name,
                     table: table
                 };
 
@@ -985,7 +1009,7 @@ exports.toJSON = function(index) {
                 return true;
             }
 
-            field = field.trim().replace('\[|\]|`', '');
+            field = field.trim().replace(/\[|]|`/g, '');
             field = field.split(/\s+/);
 
             // 有别名就用别名，没别名就用查询字段名
@@ -1095,16 +1119,18 @@ exports.forEach = function(callback) {
 
     if ( typeof callback !== 'function' ) return this;  // 无回调函数时直接返回
 
+    var row = 0;
     rs.MoveFirst();
     while ( !rs.EOF )
     {
         var json = {};
         for ( var i = 0; i < rs.Fields.Count; i++ ) {
-            json[rs.Fields(i).Name] = rs.Fields(i).Value;
+            json[rs.Fields(i).Name] = helper.formatData(rs.Fields(i).Value);
         }
 
-        callback.call(callback, json);
+        callback.call(callback, json, row);
 
+        row++;
         rs.MoveNext();
     }
 
@@ -1130,7 +1156,7 @@ exports.each = function(callback) {
     while ( !rs.EOF )
     {
         for ( var i = 0; i < rs.Fields.Count; i++ ) {
-            callback.call(callback, rs.Fields(i).Value, rs.Fields(i).Name, row, i);
+            callback.call(callback, helper.formatData(rs.Fields(i).Value), rs.Fields(i).Name, row, i);
         }
 
         row++;
@@ -1139,6 +1165,98 @@ exports.each = function(callback) {
 
     return this;
 };
+
+var where = function() {
+    this.wheres = [];
+};
+
+/**
+ * where and
+ * @param {String|[{key, val, operate}]} key
+ * @param {*} val
+ * @param {String} [operate="="]
+ * @returns {where}
+ */
+where.prototype.and = function(key, val, operate) {
+    if (key instanceof Array) {
+        var that = this;
+        key.forEach(function(item) {
+            that.push(item.key, item.val, item.operate, "and")
+        });
+    } else {
+        this.push(key, val, operate, "and");
+    }
+
+    return this;
+};
+
+/**
+ * where or
+ * @param {String|[{key, val, operate}]} key
+ * @param {*} val
+ * @param {String} [operate="="]
+ * @returns {where}
+ */
+where.prototype.or = function(key, val, operate) {
+    if (key instanceof Array) {
+        var that = this;
+        key.forEach(function(item) {
+            that.push(item.key, item.val, item.operate, "or")
+        });
+    } else {
+        this.push(key, val, operate, "or");
+    }
+
+    return this;
+};
+
+/**
+ *
+ * @param {String} key
+ * @param {*} val
+ * @param {String} [operate="="]
+ * @param {String} [logic="and"]
+ * @returns {where}
+ */
+where.prototype.push = function(key, val, operate, logic) {
+    operate = operate || '=';
+    logic = logic || 'and';
+
+    var text;
+    var type = helper.getType(val);
+    if (type === "number") {
+        val = String(val);
+    } else if (type === "date") {
+        if (exports.options.dbType === dbTypes.access) {
+            val = "'" + val.toLocaleString() + "'";
+        } else {
+            val = "'" + helper.convertDateTime(val) + "'";
+        }
+    } else if (type === 'boolean') {
+        if (exports.options.dbType === dbTypes.access) {
+            val = val ? '-1' : '0';
+        } else {
+            val = val ? '1' : '0';
+        }
+    } else if (type === 'string') {
+        val = "'" + val.replace(/'/g, "''") + "'";
+    } else {
+        val = ("'" + String(val) + "'");
+    }
+
+    text = key + operate + val;
+
+    this.wheres.push(text);
+    this.wheres = [this.wheres.join(" " + logic + " ")];
+
+    return this;
+};
+
+where.prototype.toString = function() {
+    return this.wheres.join(' and ');
+};
+
+exports.where = where;
 
 /**
  * 打开数据库连接
